@@ -115,13 +115,13 @@ class SmartSatelliteDevice:
     active: bool
     brand: str
     battery_voltage: float
-    fence_voltage: int  # Volts
+    fence_voltage: float  # kV
     mode: int
-    fence_voltage_alarm_threshold: int  # Volts
+    fence_voltage_alarm_threshold: float  # kV
     signal_quality: int  # 0-100%
     battery_state: int  # 0-100%
     current_error: str
-    device_type: DeviceType
+    device_type: DeviceType | None = None
     offline_since: datetime | None = None
     first_online_at: datetime | None = None
     firmware_version: str | None = None
@@ -190,11 +190,14 @@ class SmartSatelliteDevice:
                 data["firmwareReleaseDate"].replace("Z", "+00:00")
             )
 
-        # Parse device type
-        device_type = DeviceType(
-            id=data["deviceType"]["id"],
-            name=data["deviceType"]["name"],
-        )
+        # Parse device type (optional - API may omit this field)
+        device_type = None
+        device_type_data = data.get("deviceType")
+        if device_type_data:
+            device_type = DeviceType(
+                id=device_type_data["id"],
+                name=device_type_data["name"],
+            )
 
         return cls(
             id=data["id"],

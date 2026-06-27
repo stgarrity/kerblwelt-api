@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kerblwelt-api"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python API client for Kerbl Welt IoT platform (AKO Smart Satellite electric fence monitors)"
 readme = "README.md"
 requires-python = ">=3.11"
