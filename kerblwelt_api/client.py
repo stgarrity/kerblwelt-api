@@ -116,6 +116,7 @@ class KerblweltClient:
         self,
         method: str,
         endpoint: str,
+        _allow_refresh: bool = True,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Make an authenticated API request.
@@ -123,6 +124,8 @@ class KerblweltClient:
         Args:
             method: HTTP method (GET, POST, etc.)
             endpoint: API endpoint path
+            _allow_refresh: Internal flag; when True a 401 triggers a single
+                token refresh + retry. Set False on the retry to avoid loops.
             **kwargs: Additional arguments for aiohttp request
 
         Returns:
@@ -131,6 +134,7 @@ class KerblweltClient:
         Raises:
             APIError: If API request fails
             ConnectionError: If connection fails
+            TokenExpiredError: If the session expired and refresh failed
         """
         if not self._session:
             raise RuntimeError("Client not initialized - use async context manager")
@@ -152,6 +156,16 @@ class KerblweltClient:
                     return await response.json()
                 elif response.status == 401:
                     error_text = await response.text()
+                    # Access token likely expired. Attempt a single, throttled
+                    # refresh and retry once before surfacing an auth failure.
+                    if _allow_refresh and self._auth.refresh_token:
+                        _LOGGER.info(
+                            "Got 401 for %s - attempting token refresh", endpoint
+                        )
+                        await self._auth.refresh_access_token()
+                        return await self._request(
+                            method, endpoint, _allow_refresh=False, **kwargs
+                        )
                     _LOGGER.error("Unauthorized request to %s: %s", endpoint, error_text)
                     raise APIError(f"Unauthorized: {error_text}", status_code=401)
                 elif response.status == 404:

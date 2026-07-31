@@ -1,6 +1,7 @@
 """Authentication module for Kerbl Welt API."""
 
 import logging
+import time
 from typing import Any
 
 import aiohttp
@@ -27,6 +28,10 @@ _LOGGER = logging.getLogger(__name__)
 class AuthManager:
     """Manages authentication with Kerbl Welt API."""
 
+    # Minimum seconds between token-refresh attempts. Guards against a
+    # misbehaving caller hammering the auth endpoint under a sustained 401.
+    _MIN_REFRESH_INTERVAL = 30.0
+
     def __init__(self, session: aiohttp.ClientSession) -> None:
         """Initialize authentication manager.
 
@@ -36,6 +41,7 @@ class AuthManager:
         self._session = session
         self._access_token: str | None = None
         self._refresh_token: str | None = None
+        self._last_refresh_attempt: float = 0.0
 
     @property
     def access_token(self) -> str | None:
@@ -137,6 +143,17 @@ class AuthManager:
         """
         if not self._refresh_token:
             raise AuthenticationError("No refresh token available")
+
+        now = time.monotonic()
+        elapsed = now - self._last_refresh_attempt
+        if self._last_refresh_attempt and elapsed < self._MIN_REFRESH_INTERVAL:
+            _LOGGER.warning(
+                "Token refresh throttled (last attempt %.1fs ago, min %.0fs)",
+                elapsed,
+                self._MIN_REFRESH_INTERVAL,
+            )
+            raise TokenRefreshError("Token refresh throttled - retry later")
+        self._last_refresh_attempt = now
 
         url = f"{BASE_URL}{ENDPOINT_AUTH_REFRESH}"
         payload = {"refreshToken": self._refresh_token}
