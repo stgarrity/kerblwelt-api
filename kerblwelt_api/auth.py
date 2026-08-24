@@ -156,7 +156,14 @@ class AuthManager:
         self._last_refresh_attempt = now
 
         url = f"{BASE_URL}{ENDPOINT_AUTH_REFRESH}"
-        payload = {"refreshToken": self._refresh_token}
+        # The /auth/refresh endpoint requires BOTH the (expired) access token and
+        # the refresh token. Sending only refreshToken returns 400 "accessToken
+        # must be a string", which previously left the integration unable to renew
+        # its session until a full restart re-ran sign-in.
+        payload = {
+            "accessToken": self._access_token,
+            "refreshToken": self._refresh_token,
+        }
         headers = {HEADER_CONTENT_TYPE: CONTENT_TYPE_JSON}
 
         _LOGGER.debug("Refreshing access token")

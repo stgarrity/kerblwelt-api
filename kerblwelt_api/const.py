@@ -43,4 +43,4 @@ ACCESS_TOKEN_EXPIRY = 15 * 24 * 60 * 60  # ~15 days
 REFRESH_TOKEN_EXPIRY = 40 * 24 * 60 * 60  # ~40 days
 
 # Version
-__version__ = "0.1.2"
+__version__ = "0.1.3"

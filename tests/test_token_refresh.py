@@ -57,6 +57,7 @@ class FakeSession:
     def __init__(self):
         self.request_calls = []
         self.post_calls = []
+        self.post_payloads = []
         self.request_responses = []
         self.refresh_responses = []
 
@@ -67,6 +68,7 @@ class FakeSession:
 
     def post(self, url, **kwargs):
         self.post_calls.append(url)
+        self.post_payloads.append(kwargs.get("json"))
         assert "/auth/refresh" in url, f"unexpected post: {url}"
         assert self.refresh_responses, "unexpected refresh post"
         return self.refresh_responses.pop(0)
@@ -126,6 +128,27 @@ async def test_no_refresh_when_disallowed():
     assert excinfo.value.status_code == 401
     assert len(session.request_calls) == 1
     assert len(session.post_calls) == 0  # never refreshed
+
+
+async def test_refresh_payload_includes_access_token():
+    """Regression: /auth/refresh requires BOTH accessToken and refreshToken.
+
+    Sending only refreshToken returns 400 "accessToken must be a string", which
+    previously took the integration offline until a full restart.
+    """
+    session = FakeSession()
+    session.refresh_responses = [
+        FakeResponse(201, json_data={"accessToken": "a2", "refreshToken": "r2"}),
+    ]
+
+    auth = AuthManager(session)
+    auth.set_tokens("expired-access", "refresh-token")
+
+    await auth.refresh_access_token()
+
+    assert session.post_payloads == [
+        {"accessToken": "expired-access", "refreshToken": "refresh-token"}
+    ]
 
 
 async def test_refresh_is_throttled():
