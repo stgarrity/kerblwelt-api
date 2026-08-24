@@ -32,6 +32,11 @@ class AuthManager:
     # misbehaving caller hammering the auth endpoint under a sustained 401.
     _MIN_REFRESH_INTERVAL = 30.0
 
+    # Minimum seconds between full sign-in attempts. Guards the sign-in endpoint
+    # against a caller that re-authenticates in a tight loop (e.g. a coordinator
+    # that re-logs-in on every failed update while the API is misbehaving).
+    _MIN_AUTH_INTERVAL = 30.0
+
     def __init__(self, session: aiohttp.ClientSession) -> None:
         """Initialize authentication manager.
 
@@ -42,6 +47,7 @@ class AuthManager:
         self._access_token: str | None = None
         self._refresh_token: str | None = None
         self._last_refresh_attempt: float = 0.0
+        self._last_auth_attempt: float = 0.0
 
     @property
     def access_token(self) -> str | None:
@@ -98,6 +104,17 @@ class AuthManager:
             InvalidCredentialsError: If credentials are invalid
             AuthenticationError: If authentication fails for other reasons
         """
+        now = time.monotonic()
+        elapsed = now - self._last_auth_attempt
+        if self._last_auth_attempt and elapsed < self._MIN_AUTH_INTERVAL:
+            _LOGGER.warning(
+                "Sign-in throttled (last attempt %.1fs ago, min %.0fs)",
+                elapsed,
+                self._MIN_AUTH_INTERVAL,
+            )
+            raise AuthenticationError("Authentication throttled - retry later")
+        self._last_auth_attempt = now
+
         url = f"{BASE_URL}{ENDPOINT_AUTH_SIGN_IN}"
         payload = {"email": email, "password": password}
         headers = {HEADER_CONTENT_TYPE: CONTENT_TYPE_JSON}

@@ -16,7 +16,12 @@ import pytest
 
 from kerblwelt_api.auth import AuthManager
 from kerblwelt_api.client import KerblweltClient
-from kerblwelt_api.exceptions import APIError, TokenExpiredError, TokenRefreshError
+from kerblwelt_api.exceptions import (
+    APIError,
+    AuthenticationError,
+    TokenExpiredError,
+    TokenRefreshError,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +65,7 @@ class FakeSession:
         self.post_payloads = []
         self.request_responses = []
         self.refresh_responses = []
+        self.signin_responses = []
 
     def request(self, method, url, **kwargs):
         self.request_calls.append((method, url))
@@ -69,9 +75,13 @@ class FakeSession:
     def post(self, url, **kwargs):
         self.post_calls.append(url)
         self.post_payloads.append(kwargs.get("json"))
-        assert "/auth/refresh" in url, f"unexpected post: {url}"
-        assert self.refresh_responses, "unexpected refresh post"
-        return self.refresh_responses.pop(0)
+        if "/auth/refresh" in url:
+            assert self.refresh_responses, "unexpected refresh post"
+            return self.refresh_responses.pop(0)
+        if "/auth/sign-in" in url:
+            assert self.signin_responses, "unexpected sign-in post"
+            return self.signin_responses.pop(0)
+        raise AssertionError(f"unexpected post: {url}")
 
 
 async def _make_client(session):
@@ -166,4 +176,25 @@ async def test_refresh_is_throttled():
 
     with pytest.raises(TokenRefreshError):
         await auth.refresh_access_token()
+    assert len(session.post_calls) == 1  # throttled: no second network call
+
+
+async def test_authenticate_is_throttled():
+    """Two sign-ins inside the throttle window: the second is rejected.
+
+    Protects the sign-in endpoint from a caller (e.g. the HA coordinator's
+    self-heal path) that re-authenticates on every failed update.
+    """
+    session = FakeSession()
+    session.signin_responses = [
+        FakeResponse(201, json_data={"accessToken": "a1", "refreshToken": "r1"}),
+    ]
+
+    auth = AuthManager(session)
+
+    await auth.authenticate("user@example.com", "pw")
+    assert len(session.post_calls) == 1
+
+    with pytest.raises(AuthenticationError):
+        await auth.authenticate("user@example.com", "pw")
     assert len(session.post_calls) == 1  # throttled: no second network call
